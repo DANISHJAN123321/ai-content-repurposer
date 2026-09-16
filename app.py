@@ -1,50 +1,47 @@
 import streamlit as st
-from openai import OpenAI
+from google import genai
 
-# 1. Set Page Title & Layout
-st.set_page_config(page_title="AI Content Repurposer", page_icon="📝", layout="wide")
+# Page setup
+st.set_page_config(page_title="Gemini Streamlit App", page_icon="🤖")
+st.title("🤖 Chat with Gemini")
 
-# 2. Sidebar for API Key Input
-st.sidebar.title("⚙️ Settings")
-st.sidebar.write("Get your API key from [platform.openai.com](https://platform.openai.com)")
+# Retrieve API key from secrets
+api_key = st.secrets.get("GEMINI_API_KEY")
 
-api_key = st.sidebar.text_input(
-    "Enter OpenAI API Key",
-    type="password",
-    help="Paste your sk-... key here"
-)
+if not api_key:
+    st.error("Missing GEMINI_API_KEY in secrets. Please set it in secrets.toml or Streamlit Cloud.")
+    st.stop()
 
-# 3. Main Screen UI
-st.title("📝 AI Content Repurposer")
-st.write("Paste your raw article, notes, or transcript below to transform it for social platforms.")
+# Initialize Gemini client
+client = genai.Client(api_key=api_key)
 
-source_text = st.text_area("Source Text", height=220, placeholder="Paste your raw text here...")
+# Initialize session state for chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-col1, col2 = st.columns(2)
-with col1:
-    platform = st.selectbox("Select Target Platform", ["LinkedIn Post", "Twitter Thread", "Newsletter Email"])
-with col2:
-    tone = st.selectbox("Select Tone of Voice", ["Professional", "Conversational", "Engaging", "Short & Punchy"])
+# Display prior chat history
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-# 4. Processing Logic
-if st.button("🚀 Repurpose Content", type="primary"):
-    if not api_key.strip():
-        st.sidebar.error("⚠️ Please enter your OpenAI API key in the sidebar on the left!")
-    elif not source_text.strip():
-        st.warning("⚠️ Please paste some text into the box above before generating.")
-    else:
-        try:
-            client = OpenAI(api_key=api_key)
-            prompt = f"Repurpose the following content into a {platform} with a {tone} tone:\n\n{source_text}"
-            
-            with st.spinner("Generating your post..."):
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}]
+# Process user input
+if prompt := st.chat_input("Ask something..."):
+    # Render user prompt
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Generate model response
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            try:
+                # Uses gemini-2.5-flash (free tier eligible)
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt
                 )
-                
-            st.success("✅ Output Generated:")
-            st.markdown(response.choices[0].message.content)
-            
-        except Exception as e:
-            st.error(f"Error: {e}")
+                bot_response = response.text
+                st.markdown(bot_response)
+                st.session_state.messages.append({"role": "assistant", "content": bot_response})
+            except Exception as e:
+                st.error(f"Error generating response: {e}")
