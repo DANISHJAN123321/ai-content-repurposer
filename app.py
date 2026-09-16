@@ -19,7 +19,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. Custom CSS
+# 2. Custom Styling
 st.markdown("""
 <style>
     .main-title {
@@ -47,7 +47,7 @@ st.markdown("""
 
 # 3. Header Section
 st.markdown('<div class="main-title">✨ AI Content Repurposer Studio Pro</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> engine with Niche-Specific Marketing Frameworks.</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> with Viral Scoring & Visual Mockup Prompts.</div>', unsafe_allow_html=True)
 
 # 4. Sidebar Setup
 st.sidebar.title("⚙️ Setup & Keys")
@@ -95,7 +95,7 @@ uploaded_doc = None
 uploaded_audio = None
 
 if input_type == "Text Script / Raw Notes":
-    source_text = st.text_area("📝 Source Content / Topic Notes:", height=180, placeholder="Paste track details, lyric fragments, store copy, or raw notes...")
+    source_text = st.text_area("📝 Source Content / Topic Notes:", height=180, placeholder="Paste track details, lyrics, apparel drop info, or raw draft...")
 elif input_type == "Upload Document (PDF, DOCX, TXT)":
     uploaded_doc = st.file_uploader("📄 Select Document:", type=["pdf", "docx", "txt"])
     if uploaded_doc:
@@ -114,7 +114,7 @@ else:
     if uploaded_audio:
         st.audio(uploaded_audio, format=uploaded_audio.type)
 
-# Pre-Built Marketing Framework Selector
+# Framework Selector
 campaign_framework = st.selectbox(
     "💡 Select Specialized Marketing Template:",
     [
@@ -142,12 +142,14 @@ with col3:
 with col4:
     target_language = st.selectbox("🌐 Target Language:", ["English", "Spanish (Español)", "Urdu (اردو)", "French (Français)", "German (Deutsch)", "Arabic (العربية)", "Hindi (हिंदी)"], index=0)
 
-c_col1, c_col2, c_col3 = st.columns(3)
+c_col1, c_col2, c_col3, c_col4 = st.columns(4)
 with c_col1:
     enable_image_prompts = st.checkbox("🎨 Generate AI Image Prompts", value=True)
 with c_col2:
     enable_seo = st.checkbox("🔑 Extract SEO & Hashtags", value=True)
 with c_col3:
+    enable_viral_score = st.checkbox("🔥 Viral Hook Score & Tips", value=True)
+with c_col4:
     enable_speech_preview = st.checkbox("🔊 Enable Audio Speech Preview", value=HAS_GTTS, disabled=not HAS_GTTS)
 
 # 7. Generation Trigger
@@ -167,22 +169,24 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
             
             transcript_instruction = "[SECTION: 🎙️ Raw Audio Transcript]\nProvide a full verbatim transcript of the audio file." if input_type == "Upload Audio File (MP3, WAV, M4A)" else ""
             
-            # Specialized Framework Injections
             framework_instruction = ""
             if campaign_framework == "🎵 Music Release & Audio Promotion Strategy":
                 framework_instruction = """
                 SPECIALIZED MARKETING FRAMEWORK: MUSIC RELEASE & AUDIO CONTENT
                 - Focus on building hype across platforms: Pre-save hooks, teaser audio overlays, streaming link CTAs (Spotify, SoundCloud, Apple Music).
                 - Structure TikTok & Reels with visual scene ideas (e.g., studio footage, visualizer concepts, lyric sync cues).
-                - Include cover art & banner generation ideas tailored for music releases.
                 """
             elif campaign_framework == "👕 Apparel & E-Commerce Storefront Campaign":
                 framework_instruction = """
                 SPECIALIZED MARKETING FRAMEWORK: APPAREL & STOREFRONT CAMPAIGN
                 - Focus on product highlights: Organic materials, fit previews, print design stories, limited drops, and shop CTAs.
                 - Structure content around aesthetic lifestyle hooks, behind-the-scenes brand messaging, and launch promos.
-                - Include product photography & mock-up image prompts.
                 """
+
+            viral_score_instruction = """
+            [SECTION: 🔥 Viral Hook Score & Analysis]
+            Provide a viral potential rating (1 to 10), critique of the opening hook, and 3 actionable suggestions to improve engagement.
+            """ if enable_viral_score else ""
 
             image_prompt_instruction = """
             [SECTION: 🎨 AI Image Prompts (Midjourney / DALL-E 3)]
@@ -198,7 +202,6 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
             prompt = f"""
             Act as a master social media strategist and creative director. 
             {transcript_instruction}
-            
             {framework_instruction}
 
             Repurpose the input content for these target platforms: {platforms_str}.
@@ -207,6 +210,7 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
 
             STRICT FORMAT: Label every section with `[PLATFORM: Platform Name]` or `[SECTION: Section Name]`.
 
+            {viral_score_instruction}
             {image_prompt_instruction}
             {seo_instruction}
             """
@@ -218,7 +222,7 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
             else:
                 payload.append(f"Source Material:\n{source_text}\n\n{prompt}")
 
-            with st.spinner(f"✨ Generating {campaign_framework} campaign in {target_language}..."):
+            with st.spinner(f"✨ Generating campaign in {target_language}..."):
                 response = client.models.generate_content(
                     model="gemini-3.6-flash",
                     contents=payload
@@ -226,7 +230,7 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
 
             st.session_state["generated_output"] = response.text
             st.session_state["parsed_content"] = parse_sections(response.text)
-            st.success("✅ Content Generated Successfully with gemini-3.6-flash!")
+            st.success("✅ Content Generated Successfully!")
 
         except Exception as e:
             st.error(f"Error during generation: {e}")
@@ -270,7 +274,7 @@ if "parsed_content" in st.session_state:
 
     with tabs[-1]:
         st.subheader("💬 Ask AI to Edit or Refine Output")
-        user_query = st.text_input("Ask for adjustments (e.g., 'Add streaming pre-save links', 'Make product features clearer'):")
+        user_query = st.text_input("Ask for adjustments (e.g., 'Make the hook punchier', 'Add a promotional discount code'):")
         if st.button("Apply Edit Request") and user_query:
             try:
                 client = genai.Client(api_key=api_key)
