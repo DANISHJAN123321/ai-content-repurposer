@@ -59,7 +59,7 @@ else:
     st.sidebar.success("✅ Gemini API Key detected!")
 
 st.sidebar.markdown("---")
-st.sidebar.write("💡 **Tip:** GEMINI-2.0-FLASH is fast and free to test via Google AI Studio.")
+st.sidebar.write("💡 **Tip:** GEMINI-3.6-FLASH is fast and free to test via Google AI Studio.")
 
 # 5. Main Inputs
 source_text = st.text_area(
@@ -125,7 +125,7 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
             
             with st.spinner("✨ Crafting multi-platform content with Gemini..."):
                 response = client.models.generate_content(
-                    model="gemini-2.0-flash",
+                    model="gemini-3.6-flash",
                     contents=prompt
                 )
             
