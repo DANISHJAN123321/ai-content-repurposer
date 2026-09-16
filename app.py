@@ -25,9 +25,15 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. Custom Styling
+# 2. Custom Styling & Hiding Streamlit Cloud UI (Fork / Branding)
 st.markdown("""
 <style>
+    /* Hide Streamlit Header, Top-Right Fork/GitHub Button, and Footer */
+    header {visibility: hidden !important;}
+    .stAppDeployButton {display: none !important;}
+    #MainMenu {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    
     .main-title {
         font-size: 2.6rem;
         font-weight: 800;
