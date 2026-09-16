@@ -1,5 +1,7 @@
 import streamlit as st
 import re
+import requests
+from bs4 import BeautifulSoup
 from google import genai
 import pypdf
 import docx
@@ -47,7 +49,7 @@ st.markdown("""
 
 # 3. Header Section
 st.markdown('<div class="main-title">✨ AI Content Repurposer Studio Pro</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> with Viral Scoring & Visual Mockup Prompts.</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> with URL Scraper & AI Content Calendar.</div>', unsafe_allow_html=True)
 
 # 4. Sidebar Setup
 st.sidebar.title("⚙️ Setup & Keys")
@@ -62,6 +64,16 @@ st.sidebar.markdown("---")
 st.sidebar.write("⚡ **Engine:** `gemini-3.6-flash`")
 
 # 5. Helper Functions
+def extract_text_from_url(url):
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    response = requests.get(url, headers=headers, timeout=10)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    for script in soup(["script", "style"]):
+        script.extract()
+    text = soup.get_text(separator=' ')
+    lines = (line.strip() for line in text.splitlines())
+    return " ".join(chunk for chunk in lines if chunk)
+
 def extract_text_from_pdf(file):
     reader = pypdf.PdfReader(file)
     return "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
@@ -86,7 +98,7 @@ def parse_sections(text):
 # 6. Inputs Section
 input_type = st.radio(
     "📥 Choose Input Source Type:",
-    ["Text Script / Raw Notes", "Upload Document (PDF, DOCX, TXT)", "Upload Audio File (MP3, WAV, M4A)"],
+    ["Text Script / Raw Notes", "🌐 Web Page / Article URL", "Upload Document (PDF, DOCX, TXT)", "Upload Audio File (MP3, WAV, M4A)"],
     horizontal=True
 )
 
@@ -96,6 +108,20 @@ uploaded_audio = None
 
 if input_type == "Text Script / Raw Notes":
     source_text = st.text_area("📝 Source Content / Topic Notes:", height=180, placeholder="Paste track details, lyrics, apparel drop info, or raw draft...")
+elif input_type == "🌐 Web Page / Article URL":
+    target_url = st.text_input("🔗 Enter Web Page or Article URL:", placeholder="https://example.com/blog-post-or-news")
+    if target_url:
+        if st.button("Fetch Web Content"):
+            try:
+                with st.spinner("Scraping webpage text..."):
+                    source_text = extract_text_from_url(target_url)
+                    st.session_state["fetched_url_text"] = source_text
+                    st.success(f"✅ Extracted {len(source_text.split())} words from link!")
+            except Exception as e:
+                st.error(f"Could not fetch URL content: {e}")
+    if "fetched_url_text" in st.session_state:
+        source_text = st.session_state["fetched_url_text"]
+        st.info(f"Loaded URL Text ({len(source_text.split())} words)")
 elif input_type == "Upload Document (PDF, DOCX, TXT)":
     uploaded_doc = st.file_uploader("📄 Select Document:", type=["pdf", "docx", "txt"])
     if uploaded_doc:
@@ -148,16 +174,16 @@ with c_col1:
 with c_col2:
     enable_seo = st.checkbox("🔑 Extract SEO & Hashtags", value=True)
 with c_col3:
-    enable_viral_score = st.checkbox("🔥 Viral Hook Score & Tips", value=True)
+    enable_calendar = st.checkbox("📅 Generate 7-Day Posting Plan", value=True)
 with c_col4:
-    enable_speech_preview = st.checkbox("🔊 Enable Audio Speech Preview", value=HAS_GTTS, disabled=not HAS_GTTS)
+    enable_speech_preview = st.checkbox("🔊 Audio Speech Preview", value=HAS_GTTS, disabled=not HAS_GTTS)
 
 # 7. Generation Trigger
 if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
     if not api_key:
         st.error("⚠️ Gemini API key required.")
-    elif input_type in ["Text Script / Raw Notes", "Upload Document (PDF, DOCX, TXT)"] and not source_text.strip():
-        st.warning("⚠️ Provide source text or a valid document.")
+    elif input_type in ["Text Script / Raw Notes", "Upload Document (PDF, DOCX, TXT)", "🌐 Web Page / Article URL"] and not source_text.strip():
+        st.warning("⚠️ Provide source text, a URL, or a valid document.")
     elif input_type == "Upload Audio File (MP3, WAV, M4A)" and uploaded_audio is None:
         st.warning("⚠️ Upload an audio file first.")
     elif not target_platforms:
@@ -173,20 +199,20 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
             if campaign_framework == "🎵 Music Release & Audio Promotion Strategy":
                 framework_instruction = """
                 SPECIALIZED MARKETING FRAMEWORK: MUSIC RELEASE & AUDIO CONTENT
-                - Focus on building hype across platforms: Pre-save hooks, teaser audio overlays, streaming link CTAs (Spotify, SoundCloud, Apple Music).
-                - Structure TikTok & Reels with visual scene ideas (e.g., studio footage, visualizer concepts, lyric sync cues).
+                - Focus on building hype: Pre-save hooks, teaser audio overlays, streaming links (Spotify, SoundCloud, Apple Music).
+                - Structure TikTok & Reels with visual scene ideas (studio clips, visualizer concepts, lyric sync cues).
                 """
             elif campaign_framework == "👕 Apparel & E-Commerce Storefront Campaign":
                 framework_instruction = """
                 SPECIALIZED MARKETING FRAMEWORK: APPAREL & STOREFRONT CAMPAIGN
-                - Focus on product highlights: Organic materials, fit previews, print design stories, limited drops, and shop CTAs.
-                - Structure content around aesthetic lifestyle hooks, behind-the-scenes brand messaging, and launch promos.
+                - Focus on product highlights: Organic materials, fit previews, print design stories, limited drops, shop CTAs.
+                - Structure content around aesthetic lifestyle hooks and behind-the-scenes brand messaging.
                 """
 
-            viral_score_instruction = """
-            [SECTION: 🔥 Viral Hook Score & Analysis]
-            Provide a viral potential rating (1 to 10), critique of the opening hook, and 3 actionable suggestions to improve engagement.
-            """ if enable_viral_score else ""
+            calendar_instruction = """
+            [SECTION: 📅 7-Day Content Scheduling Plan]
+            Provide a day-by-day table (Day 1 through Day 7) showing: Day, Recommended Platform, Post Title/Hook, and Best Time to Post.
+            """ if enable_calendar else ""
 
             image_prompt_instruction = """
             [SECTION: 🎨 AI Image Prompts (Midjourney / DALL-E 3)]
@@ -210,7 +236,7 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
 
             STRICT FORMAT: Label every section with `[PLATFORM: Platform Name]` or `[SECTION: Section Name]`.
 
-            {viral_score_instruction}
+            {calendar_instruction}
             {image_prompt_instruction}
             {seo_instruction}
             """
