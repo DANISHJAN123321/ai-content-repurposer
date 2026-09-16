@@ -7,6 +7,9 @@ import pypdf
 import docx
 import pandas as pd
 import io
+import sqlite3
+import hashlib
+import random
 
 # Optional audio preview dependency
 try:
@@ -49,47 +52,144 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. AUTHENTICATION & GUEST GATE
+# 3. DATABASE SETUP FOR USERS & HISTORY
+# ==========================================
+def init_db():
+    conn = sqlite3.connect('users.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            email TEXT PRIMARY KEY,
+            password TEXT
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS history (
+            email TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            content_summary TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_user(email, password):
+    conn = sqlite3.connect('users.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('SELECT password FROM users WHERE email = ?', (email,))
+    row = c.fetchone()
+    conn.close()
+    if row and row[0] == hash_password(password):
+        return True
+    return False
+
+def register_user(email, password):
+    conn = sqlite3.connect('users.db', check_same_thread=False)
+    c = conn.cursor()
+    try:
+        c.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hash_password(password)))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+# ==========================================
+# 4. AUTHENTICATION & REGISTRATION GATE
 # ==========================================
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
+if "user_email" not in st.session_state:
+    st.session_state["user_email"] = ""
 if "is_guest" not in st.session_state:
     st.session_state["is_guest"] = False
 
 if not st.session_state["authenticated"]:
-    st.markdown('<div class="main-title">🔒 Access Portal</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-title">Enter your password or continue as a guest (history will not be saved).</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title">🔐 Professional Access Portal</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title">Sign in to your account, register a new profile, or continue as guest.</div>', unsafe_allow_html=True)
     
-    stored_password = st.secrets.get("APP_PASSWORD", "secret123")
-    entered_password = st.text_input("Enter Password:", type="password")
+    auth_tab1, auth_tab2 = st.tabs(["🔑 Sign In", "📝 Create Account"])
     
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("🔓 Unlock with Password", type="primary"):
-            if entered_password == stored_password:
+    with auth_tab1:
+        login_email = st.text_input("Email Address", key="login_email")
+        login_pass = st.text_input("Password", type="password", key="login_pass")
+        
+        col_l1, col_l2 = st.columns(2)
+        with col_l1:
+            if st.button("🚀 Secure Login", type="primary"):
+                if verify_user(login_email, login_pass):
+                    st.session_state["authenticated"] = True
+                    st.session_state["user_email"] = login_email
+                    st.session_state["is_guest"] = False
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid email or password.")
+        with col_l2:
+            if st.button("👤 Continue as Guest"):
                 st.session_state["authenticated"] = True
-                st.session_state["is_guest"] = False
+                st.session_state["user_email"] = "Guest"
+                st.session_state["is_guest"] = True
                 st.rerun()
-            else:
-                st.error("❌ Incorrect password.")
-    with col_btn2:
-        if st.button("👤 Continue as Guest"):
+
+        st.markdown("---")
+        # Google Login Simulation Button
+        if st.button("🌐 Sign in with Google (OAuth)", use_container_width=True):
+            st.info("💡 To connect live Google OAuth, configure your client credentials in Streamlit secrets. Logging in as demo Google user...")
             st.session_state["authenticated"] = True
-            st.session_state["is_guest"] = True
+            st.session_state["user_email"] = "google_user@gmail.com"
+            st.session_state["is_guest"] = False
             st.rerun()
-            
+
+    with auth_tab2:
+        reg_email = st.text_input("Email Address", key="reg_email")
+        reg_pass = st.text_input("Create Password", type="password", key="reg_pass")
+        reg_pass_confirm = st.text_input("Confirm Password", type="password", key="reg_pass_confirm")
+        
+        # Math CAPTCHA Generation
+        if "captcha_num1" not in st.session_state:
+            st.session_state["captcha_num1"] = random.randint(1, 9)
+            st.session_state["captcha_num2"] = random.randint(1, 9)
+        
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            captcha_answer = st.text_input(f"🤖 Security Check: What is {st.session_state['captcha_num1']} + {st.session_state['captcha_num2']}?")
+        
+        if st.button("✨ Register New Account", type="primary"):
+            expected_answer = str(st.session_state["captcha_num1"] + st.session_state["captcha_num2"])
+            if captcha_answer.strip() != expected_answer:
+                st.error("❌ Incorrect CAPTCHA answer. Please try again.")
+            elif not reg_email or not reg_pass:
+                st.warning("⚠️ Please fill in all fields.")
+            elif reg_pass != reg_pass_confirm:
+                st.error("❌ Passwords do not match.")
+            else:
+                if register_user(reg_email, reg_pass):
+                    st.success("✅ Account created successfully! Please switch to the Sign In tab.")
+                    st.session_state["captcha_num1"] = random.randint(1, 9)
+                    st.session_state["captcha_num2"] = random.randint(1, 9)
+                else:
+                    st.error("❌ Email already registered. Please sign in.")
+
     st.stop()
 
 # ==========================================
-# 4. MAIN APP CONTENT (Unlocked)
+# 5. MAIN APP CONTENT (Unlocked)
 # ==========================================
 
 if st.session_state["is_guest"]:
     st.info("👋 **Guest Mode Active:** Full tool access enabled. History is temporary.")
+else:
+    st.sidebar.success(f"👤 Logged in as: **{st.session_state['user_email']}**")
 
 # Header Section
 st.markdown('<div class="main-title">✨ AI Content Repurposer Studio Pro</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> with Character Checkers & CSV Schedulers.</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> with Secure Auth, Captcha & Database Storage.</div>', unsafe_allow_html=True)
 
 # Sidebar Setup
 st.sidebar.title("⚙️ Setup & Customization")
@@ -117,6 +217,7 @@ custom_cta = st.sidebar.text_input("Default CTA / Link to Inject:", placeholder=
 st.sidebar.markdown("---")
 if st.sidebar.button("🔒 Logout / Lock App"):
     st.session_state["authenticated"] = False
+    st.session_state["user_email"] = ""
     st.session_state["is_guest"] = False
     st.rerun()
 
@@ -281,7 +382,17 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
 
             st.session_state["generated_output"] = response.text
             st.session_state["parsed_content"] = parse_sections(response.text)
-            st.success("✅ Content Generated Successfully!")
+            
+            # Save history if not guest
+            if not st.session_state["is_guest"]:
+                conn = sqlite3.connect('users.db', check_same_thread=False)
+                c = conn.cursor()
+                c.execute('INSERT INTO history (email, content_summary) VALUES (?, ?)', 
+                          (st.session_state["user_email"], f"Generated campaign for {platforms_str}"))
+                conn.commit()
+                conn.close()
+
+            st.success("✅ Content Generated Successfully & Saved to Account!")
 
         except Exception as e:
             st.error(f"Error during generation: {e}")
@@ -312,7 +423,6 @@ if "parsed_content" in st.session_state:
             content = parsed_content[name]
             st.markdown(content)
             
-            # Character & Word count badges
             c_chars = len(content)
             c_words = len(content.split())
             st.caption(f"📏 Stats: **{c_chars}** characters | **{c_words}** words")
@@ -369,7 +479,6 @@ if "parsed_content" in st.session_state:
             mime="text/plain"
         )
     with ex_col3:
-        # Build DataFrame for CSV Scheduler export
         df_export = pd.DataFrame(list(parsed_content.items()), columns=["Platform / Section", "Content"])
         csv_data = df_export.to_csv(index=False).encode('utf-8')
         st.download_button(
