@@ -1,2 +1,2 @@
 streamlit
-google-genai AQ.Ab8RN6KZkH6v_ydAU_XdrzvNF3o65Rxv8_i5_NTMv0pQ1Cw8JQ
+google-genai
