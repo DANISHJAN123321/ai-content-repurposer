@@ -147,13 +147,6 @@ if not st.session_state["authenticated"]:
                 st.session_state["is_guest"] = True
                 st.rerun()
 
-        st.markdown("---")
-        if st.button("🌐 Sign in with Google (OAuth)", use_container_width=True):
-            st.session_state["authenticated"] = True
-            st.session_state["user_email"] = "google_user@gmail.com"
-            st.session_state["is_guest"] = False
-            st.rerun()
-
     with auth_tab2:
         reg_email = st.text_input("Email Address", key="reg_email")
         reg_pass = st.text_input("Create Password", type="password", key="reg_pass")
@@ -235,6 +228,11 @@ selected_persona = st.sidebar.selectbox(
 )
 
 custom_cta = st.sidebar.text_input("Default CTA / Link to Inject:", placeholder="e.g., Check our store at danish-jan.teemill.com")
+
+# YouTube Channel Integration
+st.sidebar.markdown("---")
+st.sidebar.subheader("📺 Connected Channel")
+st.sidebar.markdown("[🔗 Visit DANISH JAN YouTube Channel](https://www.youtube.com/@DANISHJAN-0)")
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🔒 Logout / Lock App"):
