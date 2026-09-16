@@ -4,34 +4,37 @@ from google import genai
 import pypdf
 import docx
 
+# Optional audio preview dependency
+try:
+    from gtts import gTTS
+    import io
+    HAS_GTTS = True
+except ImportError:
+    HAS_GTTS = False
+
 # 1. Page Configuration
 st.set_page_config(
-    page_title="AI Content Repurposer Studio",
+    page_title="AI Content Repurposer Studio Pro",
     page_icon="✨",
     layout="wide"
 )
 
-# 2. Custom CSS for Stylish UI
+# 2. Custom CSS
 st.markdown("""
 <style>
-    /* Main title styling */
     .main-title {
-        font-size: 2.5rem;
+        font-size: 2.6rem;
         font-weight: 800;
         background: -webkit-linear-gradient(45deg, #FF4B4B, #FF8C00, #4A90E2);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.3rem;
     }
-    
-    /* Subtitle styling */
     .sub-title {
         font-size: 1.1rem;
         color: #6C757D;
-        margin-bottom: 2rem;
+        margin-bottom: 1.8rem;
     }
-
-    /* Tab styling overrides */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
     }
@@ -39,31 +42,54 @@ st.markdown("""
         border-radius: 8px 8px 0px 0px;
         padding: 10px 16px;
     }
+    .metric-card {
+        background-color: #f8f9fa;
+        padding: 12px;
+        border-radius: 8px;
+        border-left: 4px solid #4A90E2;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # 3. Header Section
-st.markdown('<div class="main-title">✨ AI Content Repurposer Studio</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Transform raw text, MP3 audio, PDF, or DOCX files into multi-platform social media posts and image prompts.</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">✨ AI Content Repurposer Studio Pro</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Transform raw text, documents, or audio into multi-platform campaigns, image prompts, and audio previews.</div>', unsafe_allow_html=True)
 
-# 4. Sidebar Configuration
+# 4. Sidebar Setup
 st.sidebar.title("⚙️ Setup & Keys")
-
 api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else None
 
 if not api_key:
-    api_key = st.sidebar.text_input(
-        "Enter Google Gemini API Key",
-        type="password",
-        help="Get your key at aistudio.google.com"
-    )
+    api_key = st.sidebar.text_input("Enter Google Gemini API Key", type="password", help="Get key at aistudio.google.com")
 else:
-    st.sidebar.success("✅ Gemini API Key detected!")
+    st.sidebar.success("✅ Gemini API Key Active")
 
 st.sidebar.markdown("---")
-st.sidebar.write("💡 **Tip:** Uses GEMINI-3.6-FLASH for multimodal processing and content generation.")
+st.sidebar.write("⚡ **Engine:** `gemini-2.5-flash`")
 
-# 5. Main Inputs Selection
+# 5. Helper Functions
+def extract_text_from_pdf(file):
+    reader = pypdf.PdfReader(file)
+    return "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
+
+def extract_text_from_docx(file):
+    doc = docx.Document(file)
+    return "\n".join([para.text for para in doc.paragraphs])
+
+def parse_sections(text):
+    pattern = r'\[(?:PLATFORM|SECTION):\s*(.*?)\]'
+    splits = re.split(pattern, text)
+    sections = {}
+    if len(splits) > 1:
+        for i in range(1, len(splits), 2):
+            header = splits[i].strip()
+            content = splits[i+1].strip() if (i+1) < len(splits) else ""
+            sections[header] = content
+    else:
+        sections["Generated Output"] = text
+    return sections
+
+# 6. Inputs Section
 input_type = st.radio(
     "📥 Choose Input Source Type:",
     ["Text Script / Raw Notes", "Upload Document (PDF, DOCX, TXT)", "Upload Audio File (MP3, WAV, M4A)"],
@@ -74,268 +100,133 @@ source_text = ""
 uploaded_doc = None
 uploaded_audio = None
 
-def extract_text_from_pdf(file):
-    reader = pypdf.PdfReader(file)
-    extracted_text = ""
-    for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            extracted_text += text + "\n"
-    return extracted_text
-
-def extract_text_from_docx(file):
-    doc = docx.Document(file)
-    return "\n".join([para.text for para in doc.paragraphs])
-
 if input_type == "Text Script / Raw Notes":
-    source_text = st.text_area(
-        "📝 Paste your source text or topic script here:",
-        height=200,
-        placeholder="Paste your blog post, script, meeting notes, or raw ideas..."
-    )
+    source_text = st.text_area("📝 Source Content / Topic Notes:", height=180, placeholder="Paste your script or draft...")
 elif input_type == "Upload Document (PDF, DOCX, TXT)":
-    uploaded_doc = st.file_uploader(
-        "📄 Upload a document (.pdf, .docx, .txt):",
-        type=["pdf", "docx", "txt"]
-    )
+    uploaded_doc = st.file_uploader("📄 Select Document:", type=["pdf", "docx", "txt"])
     if uploaded_doc:
         try:
-            if uploaded_doc.type == "application/pdf" or uploaded_doc.name.endswith(".pdf"):
+            if uploaded_doc.name.endswith(".pdf"):
                 source_text = extract_text_from_pdf(uploaded_doc)
-            elif uploaded_doc.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or uploaded_doc.name.endswith(".docx"):
+            elif uploaded_doc.name.endswith(".docx"):
                 source_text = extract_text_from_docx(uploaded_doc)
             else:
                 source_text = uploaded_doc.read().decode("utf-8")
-            
-            st.success(f"✅ Successfully read file: {uploaded_doc.name} ({len(source_text.split())} words detected)")
-            with st.expander("🔍 Preview Extracted Text"):
-                st.text(source_text[:1000] + ("..." if len(source_text) > 1000 else ""))
+            st.success(f"✅ Loaded {uploaded_doc.name} ({len(source_text.split())} words)")
         except Exception as e:
-            st.error(f"Error processing document: {e}")
+            st.error(f"Error parsing document: {e}")
 else:
-    uploaded_audio = st.file_uploader(
-        "🎙️ Upload an audio recording (.mp3, .wav, .m4a):",
-        type=["mp3", "wav", "m4a"]
-    )
+    uploaded_audio = st.file_uploader("🎙️ Select Audio File:", type=["mp3", "wav", "m4a"])
     if uploaded_audio:
         st.audio(uploaded_audio, format=uploaded_audio.type)
 
 col1, col2, col3, col4 = st.columns(4)
-
 with col1:
     target_platforms = st.multiselect(
         "🎯 Target Platforms:",
-        [
-            "YouTube Short / Video Script",
-            "Instagram Caption & Reels Idea",
-            "TikTok Script & Hook",
-            "LinkedIn Professional Post",
-            "Twitter/X Thread",
-            "Newsletter Summary Email"
-        ],
+        ["YouTube Short / Video Script", "Instagram Caption & Reels Idea", "TikTok Script & Hook", "LinkedIn Professional Post", "Twitter/X Thread", "Newsletter Summary Email"],
         default=["YouTube Short / Video Script", "Instagram Caption & Reels Idea", "TikTok Script & Hook"]
     )
 
 with col2:
-    tone = st.selectbox(
-        "🎭 Brand Tone:",
-        ["High Energy & Viral", "Professional & Insightful", "Casual & Conversational", "Storytelling & Educational"]
-    )
+    tone = st.selectbox("🎭 Brand Tone:", ["High Energy & Viral", "Professional & Insightful", "Casual & Conversational", "Storytelling & Educational"])
 
 with col3:
-    post_length = st.selectbox(
-        "📏 Output Length:",
-        [
-            "Short & Punchy (Brevity focus)",
-            "Medium / Standard (Balanced)",
-            "Detailed Longform (In-depth analysis)"
-        ],
-        index=1
-    )
+    post_length = st.selectbox("📏 Output Depth:", ["Short & Punchy", "Medium / Standard", "Detailed Longform"], index=1)
 
 with col4:
-    target_language = st.selectbox(
-        "🌐 Output Language:",
-        [
-            "English",
-            "Spanish (Español)",
-            "Urdu (اردو)",
-            "French (Français)",
-            "German (Deutsch)",
-            "Arabic (العربية)",
-            "Hindi (हिंदी)"
-        ],
-        index=0
-    )
+    target_language = st.selectbox("🌐 Target Language:", ["English", "Spanish (Español)", "Urdu (اردو)", "French (Français)", "German (Deutsch)", "Arabic (العربية)", "Hindi (हिंदी)"], index=0)
 
-c_col1, c_col2 = st.columns(2)
+c_col1, c_col2, c_col3 = st.columns(3)
 with c_col1:
-    enable_image_prompts = st.checkbox("🎨 Generate AI Image Prompts (Midjourney / DALL-E 3)", value=True)
+    enable_image_prompts = st.checkbox("🎨 Generate AI Image Prompts", value=True)
 with c_col2:
-    enable_seo = st.checkbox("🔑 Generate SEO Keywords & Hashtags Extractor", value=True)
+    enable_seo = st.checkbox("🔑 Extract SEO & Hashtags", value=True)
+with c_col3:
+    enable_speech_preview = st.checkbox("🔊 Enable Audio Speech Preview", value=HAS_GTTS, disabled=not HAS_GTTS)
 
-# 6. Helper Function to Parse Platform Sections
-def parse_sections(text):
-    """Splits generated text by [PLATFORM: ...] or [SECTION: ...] headers."""
-    pattern = r'\[(?:PLATFORM\vert{}SECTION):\s*(.*?)\]'
-    splits = re.split(pattern, text)
-    
-    sections = {}
-    if len(splits) > 1:
-        for i in range(1, len(splits), 2):
-            header = splits[i].strip()
-            content = splits[i+1].strip() if (i+1) < len(splits) else ""
-            sections[header] = content
-    else:
-        sections["Generated Output"] = text
-        
-    return sections
-
-# 7. Content Generation Logic
+# 7. Generation Trigger
 if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
     if not api_key:
-        st.error("⚠️ Please enter your Gemini API key in the sidebar or save it in secrets.")
+        st.error("⚠️ Gemini API key required.")
     elif input_type in ["Text Script / Raw Notes", "Upload Document (PDF, DOCX, TXT)"] and not source_text.strip():
-        st.warning("⚠️ Please provide source text or upload a valid document.")
+        st.warning("⚠️ Provide source text or a valid document.")
     elif input_type == "Upload Audio File (MP3, WAV, M4A)" and uploaded_audio is None:
-        st.warning("⚠️ Please upload an audio file first.")
+        st.warning("⚠️ Upload an audio file first.")
     elif not target_platforms:
-        st.warning("⚠️ Please select at least one platform.")
+        st.warning("⚠️ Select at least one platform.")
     else:
         try:
             client = genai.Client(api_key=api_key)
-            
             platforms_str = ", ".join(target_platforms)
             
-            transcript_instruction = ""
-            if input_type == "Upload Audio File (MP3, WAV, M4A)":
-                transcript_instruction = """
-                SPECIAL INSTRUCTION FOR AUDIO INPUT:
-                You MUST include a dedicated section at the very top formatted strictly as:
-                [SECTION: 🎙️ Raw Audio Transcript]
-                Provide an accurate, full verbatim transcript of everything spoken in the audio file.
-                """
+            transcript_instruction = "[SECTION: 🎙️ Raw Audio Transcript]\nProvide a full verbatim transcript of the audio file." if input_type == "Upload Audio File (MP3, WAV, M4A)" else ""
+            
+            image_prompt_instruction = """
+            [SECTION: 🎨 AI Image Prompts (Midjourney / DALL-E 3)]
+            Provide 4 prompts wrapped inside markdown code blocks (```):
+            1. YouTube Thumbnail (16:9)
+            2. Instagram Grid (1:1)
+            3. TikTok Cover (9:16)
+            4. Detailed DALL-E 3 Prompt
+            """ if enable_image_prompts else ""
 
-            image_prompt_instruction = ""
-            if enable_image_prompts:
-                image_prompt_instruction = """
-                Include a dedicated section formatted strictly as:
-                [SECTION: 🎨 AI Image Prompts (Midjourney / DALL-E 3)]
-                
-                Provide 4 high-quality prompts matching the content theme. 
-                STRICT RULE: Wrap every single prompt text inside markdown code blocks (using triple backticks ```) so users can click the top-right Copy button!
-
-                Structure the output like this:
-
-                ### 1. YouTube Thumbnail / Wide Cover (16:9)
-                ```
-                cinematic shot, vivid composition, dramatic studio lighting --ar 16:9 --v 6.0
-                ```
-
-                ### 2. Instagram Grid / Square Post (1:1)
-                ```
-                minimalist aesthetic concept, clean design, vibrant color palette --ar 1:1 --v 6.0
-                ```
-
-                ### 3. TikTok / Reels Portrait Cover (9:16)
-                ```
-                dynamic vertical composition, bold lighting, eye-catching visual subject --ar 9:16 --v 6.0
-                ```
-
-                ### 4. DALL-E 3 Detailed Natural Prompt
-                ```
-                A detailed photographic portrait depicting [subject], illuminated by soft golden hour light, shot on 85mm lens with shallow depth of field, high resolution, hyper-realistic texture.
-                ```
-                """
-
-            seo_instruction = ""
-            if enable_seo:
-                seo_instruction = f"""
-                Also include a dedicated section at the end formatted strictly as:
-                [SECTION: SEO Keywords & Hashtags]
-                Provide all keywords and hashtags in {target_language}:
-                1. Top 10 High-Volume SEO Keywords
-                2. Search Intent / Long-Tail Keywords
-                3. Trending Hashtags organized by platform
-                """
+            seo_instruction = f"[SECTION: SEO Keywords & Hashtags]\nProvide top 10 keywords and platform hashtags in {target_language}." if enable_seo else ""
 
             prompt = f"""
-            Act as a world-class social media strategist, visual director, and content creator.
-            
+            Act as a master content strategist. 
             {transcript_instruction}
+            Repurpose the input content for these target platforms: {platforms_str}.
+            Language: Write all posts/scripts in **{target_language}** (Keep image prompts in English).
+            Tone: {tone} | Depth: {post_length}
 
-            Repurpose the core ideas from the provided input into content customized specifically for these platforms: {platforms_str}.
-            
-            IMPORTANT: Write ALL social media response content, hooks, captions, scripts, and hashtags entirely in **{target_language}**.
-            (Note: Image prompts inside code blocks MUST remain in English for optimal performance in Midjourney/DALL-E 3).
-            
-            Tone of Voice: {tone}
-            Output Length Preference: {post_length}
-            
-            Length Guidelines:
-            - If 'Short & Punchy': Keep posts tight, bullet-point focused, quick hooks, minimal fluff.
-            - If 'Medium / Standard': Standard post lengths typical for each social network.
-            - If 'Detailed Longform': Expand deeply on points, provide rich context, extended storytelling, and comprehensive explanations.
-
-            STRICT FORMATTING RULE:
-            You MUST label every single platform's content with this exact header format in English before the content starts (so tabs render properly):
-            [PLATFORM: Platform Name]
-
-            Instructions per platform (translate all output to {target_language}):
-            - YouTube Short / Video Script: Include visual hook, video script (tailored to {post_length}), and title ideas.
-            - Instagram Caption & Reels Idea: Include caption, visual scene description, and hashtags.
-            - TikTok Script & Hook: Focus on fast-paced hook (0-3s), main script, and text overlays.
-            - LinkedIn Professional Post: Professional formatting with line breaks and actionable takeaways.
-            - Twitter/X Thread: Concise or extended thread format depending on length selected.
-            - Newsletter Summary Email: Catchy subject line and newsletter copy.
+            STRICT FORMAT: Label every section with `[PLATFORM: Platform Name]` or `[SECTION: Section Name]`.
 
             {image_prompt_instruction}
-
             {seo_instruction}
             """
 
-            contents_payload = []
-
+            payload = []
             if input_type == "Upload Audio File (MP3, WAV, M4A)":
-                audio_bytes = uploaded_audio.read()
-                mime_type = uploaded_audio.type or "audio/mp3"
-                contents_payload.append({
-                    "mime_type": mime_type,
-                    "data": audio_bytes
-                })
-                contents_payload.append(prompt)
+                payload.append({"mime_type": uploaded_audio.type or "audio/mp3", "data": uploaded_audio.read()})
+                payload.append(prompt)
             else:
-                contents_payload.append(f"Source Material:\n{source_text}\n\n{prompt}")
+                payload.append(f"Source Material:\n{source_text}\n\n{prompt}")
 
-            with st.spinner(f"✨ Generating {post_length} content and copyable image prompts in {target_language}..."):
-                response = client.models.generate_content(
-                    model="gemini-3.6-flash",
-                    contents=contents_payload
-                )
-            
-            st.success(f"✅ Content Generated Successfully in {target_language}!")
-            st.markdown("---")
-            
-            output_text = response.text
-            parsed_content = parse_sections(output_text)
-            
-            tab_names = list(parsed_content.keys())
-            
-            if tab_names:
-                tabs = st.tabs(tab_names)
-                for tab, name in zip(tabs, tab_names):
-                    with tab:
-                        st.markdown(parsed_content[name])
-            else:
-                st.markdown(output_text)
-            
-            st.markdown("---")
-            st.download_button(
-                label=f"📥 Download All Output ({target_language}) (.txt)",
-                data=output_text,
-                file_name=f"repurposed_content_{target_language.lower().split()[0]}.txt",
-                mime="text/plain"
-            )
+            with st.spinner(f"✨ Generating campaign in {target_language}..."):
+                response = client.models.generate_content(model="gemini-2.5-flash", contents=payload)
+
+            st.session_state["generated_output"] = response.text
+            st.session_state["parsed_content"] = parse_sections(response.text)
+            st.success("✅ Content Generated Successfully!")
 
         except Exception as e:
-            st.error(f"An error occurred: {e}")
+            st.error(f"Error during generation: {e}")
+
+# 8. Render Results Dashboard & Interactive Assistant
+if "parsed_content" in st.session_state:
+    parsed_content = st.session_state["parsed_content"]
+    raw_output = st.session_state.get("generated_output", "")
+    
+    st.markdown("---")
+    
+    # Strategy Insights Dashboard
+    st.subheader("📊 Strategy Insights Dashboard")
+    d_col1, d_col2, d_col3 = st.columns(3)
+    word_count = len(raw_output.split())
+    read_time = round(word_count / 200, 1)
+    
+    with d_col1:
+        st.metric("Total Word Count", f"{word_count} words")
+    with d_col2:
+        st.metric("Est. Reading Time", f"~{read_time} min")
+    with d_col3:
+        st.metric("Target Platforms", len([k for k in parsed_content if "SECTION" not in k]))
+
+    # Main Output Tabs
+    tab_names = list(parsed_content.keys()) + ["💬 AI Editing Assistant"]
+    tabs = st.tabs(tab_names)
+    
+    for idx, name in enumerate(parsed_content.keys()):
+        with tabs[idx]:
+            content = parsed_content[name]
