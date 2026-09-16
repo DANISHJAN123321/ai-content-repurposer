@@ -100,6 +100,14 @@ def register_user(email, password):
         conn.close()
         return False
 
+def get_user_history(email):
+    conn = sqlite3.connect('users.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('SELECT timestamp, content_summary FROM history WHERE email = ? ORDER BY timestamp DESC', (email,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
 # ==========================================
 # 4. AUTHENTICATION & REGISTRATION GATE
 # ==========================================
@@ -109,6 +117,8 @@ if "user_email" not in st.session_state:
     st.session_state["user_email"] = ""
 if "is_guest" not in st.session_state:
     st.session_state["is_guest"] = False
+if "show_history" not in st.session_state:
+    st.session_state["show_history"] = False
 
 if not st.session_state["authenticated"]:
     st.markdown('<div class="main-title">🔐 Professional Access Portal</div>', unsafe_allow_html=True)
@@ -138,9 +148,7 @@ if not st.session_state["authenticated"]:
                 st.rerun()
 
         st.markdown("---")
-        # Google Login Simulation Button
         if st.button("🌐 Sign in with Google (OAuth)", use_container_width=True):
-            st.info("💡 To connect live Google OAuth, configure your client credentials in Streamlit secrets. Logging in as demo Google user...")
             st.session_state["authenticated"] = True
             st.session_state["user_email"] = "google_user@gmail.com"
             st.session_state["is_guest"] = False
@@ -151,7 +159,6 @@ if not st.session_state["authenticated"]:
         reg_pass = st.text_input("Create Password", type="password", key="reg_pass")
         reg_pass_confirm = st.text_input("Confirm Password", type="password", key="reg_pass_confirm")
         
-        # Math CAPTCHA Generation
         if "captcha_num1" not in st.session_state:
             st.session_state["captcha_num1"] = random.randint(1, 9)
             st.session_state["captcha_num2"] = random.randint(1, 9)
@@ -163,7 +170,7 @@ if not st.session_state["authenticated"]:
         if st.button("✨ Register New Account", type="primary"):
             expected_answer = str(st.session_state["captcha_num1"] + st.session_state["captcha_num2"])
             if captcha_answer.strip() != expected_answer:
-                st.error("❌ Incorrect CAPTCHA answer. Please try again.")
+                st.error("❌ Incorrect CAPTCHA answer.")
             elif not reg_email or not reg_pass:
                 st.warning("⚠️ Please fill in all fields.")
             elif reg_pass != reg_pass_confirm:
@@ -185,11 +192,26 @@ if not st.session_state["authenticated"]:
 if st.session_state["is_guest"]:
     st.info("👋 **Guest Mode Active:** Full tool access enabled. History is temporary.")
 else:
-    st.sidebar.success(f"👤 Logged in as: **{st.session_state['user_email']}**")
+    st.sidebar.success(f"👤 Logged in as:\n**{st.session_state['user_email']}**")
+    st.sidebar.markdown("---")
+    if st.sidebar.button("📂 Toggle My Campaign History"):
+        st.session_state["show_history"] = not st.session_state["show_history"]
 
 # Header Section
 st.markdown('<div class="main-title">✨ AI Content Repurposer Studio Pro</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> with Secure Auth, Captcha & Database Storage.</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> with User Profiles & History Database.</div>', unsafe_allow_html=True)
+
+# Profile History Drawer View
+if st.session_state["show_history"] and not st.session_state["is_guest"]:
+    st.markdown("---")
+    st.subheader(f"📂 Saved Campaign History for {st.session_state['user_email']}")
+    history_records = get_user_history(st.session_state["user_email"])
+    if history_records:
+        df_history = pd.DataFrame(history_records, columns=["Timestamp", "Campaign Summary"])
+        st.dataframe(df_history, use_container_width=True)
+    else:
+        st.info("No saved campaigns found yet. Generate your first campaign below!")
+    st.markdown("---")
 
 # Sidebar Setup
 st.sidebar.title("⚙️ Setup & Customization")
@@ -219,6 +241,7 @@ if st.sidebar.button("🔒 Logout / Lock App"):
     st.session_state["authenticated"] = False
     st.session_state["user_email"] = ""
     st.session_state["is_guest"] = False
+    st.session_state["show_history"] = False
     st.rerun()
 
 st.sidebar.write("⚡ **Engine:** `gemini-3.6-flash`")
@@ -383,16 +406,15 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
             st.session_state["generated_output"] = response.text
             st.session_state["parsed_content"] = parse_sections(response.text)
             
-            # Save history if not guest
             if not st.session_state["is_guest"]:
                 conn = sqlite3.connect('users.db', check_same_thread=False)
                 c = conn.cursor()
                 c.execute('INSERT INTO history (email, content_summary) VALUES (?, ?)', 
-                          (st.session_state["user_email"], f"Generated campaign for {platforms_str}"))
+                          (st.session_state["user_email"], f"Campaign: {platforms_str} ({target_language})"))
                 conn.commit()
                 conn.close()
 
-            st.success("✅ Content Generated Successfully & Saved to Account!")
+            st.success("✅ Content Generated Successfully & Saved to Account History!")
 
         except Exception as e:
             st.error(f"Error during generation: {e}")
