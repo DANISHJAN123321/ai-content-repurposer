@@ -47,7 +47,7 @@ st.markdown("""
 
 # 3. Header Section
 st.markdown('<div class="main-title">✨ AI Content Repurposer Studio Pro</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> engine.</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> engine with Niche-Specific Marketing Frameworks.</div>', unsafe_allow_html=True)
 
 # 4. Sidebar Setup
 st.sidebar.title("⚙️ Setup & Keys")
@@ -95,7 +95,7 @@ uploaded_doc = None
 uploaded_audio = None
 
 if input_type == "Text Script / Raw Notes":
-    source_text = st.text_area("📝 Source Content / Topic Notes:", height=180, placeholder="Paste your script or draft...")
+    source_text = st.text_area("📝 Source Content / Topic Notes:", height=180, placeholder="Paste track details, lyric fragments, store copy, or raw notes...")
 elif input_type == "Upload Document (PDF, DOCX, TXT)":
     uploaded_doc = st.file_uploader("📄 Select Document:", type=["pdf", "docx", "txt"])
     if uploaded_doc:
@@ -113,6 +113,17 @@ else:
     uploaded_audio = st.file_uploader("🎙️ Select Audio File:", type=["mp3", "wav", "m4a"])
     if uploaded_audio:
         st.audio(uploaded_audio, format=uploaded_audio.type)
+
+# Pre-Built Marketing Framework Selector
+campaign_framework = st.selectbox(
+    "💡 Select Specialized Marketing Template:",
+    [
+        "General Content Marketing",
+        "🎵 Music Release & Audio Promotion Strategy",
+        "👕 Apparel & E-Commerce Storefront Campaign"
+    ],
+    index=0
+)
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
@@ -156,20 +167,40 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
             
             transcript_instruction = "[SECTION: 🎙️ Raw Audio Transcript]\nProvide a full verbatim transcript of the audio file." if input_type == "Upload Audio File (MP3, WAV, M4A)" else ""
             
+            # Specialized Framework Injections
+            framework_instruction = ""
+            if campaign_framework == "🎵 Music Release & Audio Promotion Strategy":
+                framework_instruction = """
+                SPECIALIZED MARKETING FRAMEWORK: MUSIC RELEASE & AUDIO CONTENT
+                - Focus on building hype across platforms: Pre-save hooks, teaser audio overlays, streaming link CTAs (Spotify, SoundCloud, Apple Music).
+                - Structure TikTok & Reels with visual scene ideas (e.g., studio footage, visualizer concepts, lyric sync cues).
+                - Include cover art & banner generation ideas tailored for music releases.
+                """
+            elif campaign_framework == "👕 Apparel & E-Commerce Storefront Campaign":
+                framework_instruction = """
+                SPECIALIZED MARKETING FRAMEWORK: APPAREL & STOREFRONT CAMPAIGN
+                - Focus on product highlights: Organic materials, fit previews, print design stories, limited drops, and shop CTAs.
+                - Structure content around aesthetic lifestyle hooks, behind-the-scenes brand messaging, and launch promos.
+                - Include product photography & mock-up image prompts.
+                """
+
             image_prompt_instruction = """
             [SECTION: 🎨 AI Image Prompts (Midjourney / DALL-E 3)]
             Provide 4 prompts wrapped inside markdown code blocks (```):
-            1. YouTube Thumbnail (16:9)
-            2. Instagram Grid (1:1)
-            3. TikTok Cover (9:16)
-            4. Detailed DALL-E 3 Prompt
+            1. YouTube Thumbnail / Banner Cover (16:9)
+            2. Instagram Grid / Product Display (1:1)
+            3. TikTok / Reels Portrait Visual (9:16)
+            4. Detailed DALL-E 3 Aesthetic Prompt
             """ if enable_image_prompts else ""
 
-            seo_instruction = f"[SECTION: SEO Keywords & Hashtags]\nProvide top 10 keywords and platform hashtags in {target_language}." if enable_seo else ""
+            seo_instruction = f"[SECTION: SEO Keywords & Hashtags]\nProvide top 10 high-volume keywords, search intent tags, and platform hashtags in {target_language}." if enable_seo else ""
 
             prompt = f"""
-            Act as a master content strategist. 
+            Act as a master social media strategist and creative director. 
             {transcript_instruction}
+            
+            {framework_instruction}
+
             Repurpose the input content for these target platforms: {platforms_str}.
             Language: Write all posts/scripts in **{target_language}** (Keep image prompts in English).
             Tone: {tone} | Depth: {post_length}
@@ -187,8 +218,7 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
             else:
                 payload.append(f"Source Material:\n{source_text}\n\n{prompt}")
 
-            with st.spinner(f"✨ Generating campaign in {target_language} using gemini-3.6-flash..."):
-                # Clean call without prohibited hyperparameter overrides
+            with st.spinner(f"✨ Generating {campaign_framework} campaign in {target_language}..."):
                 response = client.models.generate_content(
                     model="gemini-3.6-flash",
                     contents=payload
@@ -208,7 +238,6 @@ if "parsed_content" in st.session_state:
     
     st.markdown("---")
     
-    # Strategy Insights Dashboard
     st.subheader("📊 Strategy Insights Dashboard")
     d_col1, d_col2, d_col3 = st.columns(3)
     word_count = len(raw_output.split())
@@ -221,7 +250,6 @@ if "parsed_content" in st.session_state:
     with d_col3:
         st.metric("Target Platforms", len([k for k in parsed_content if "SECTION" not in k]))
 
-    # Main Output Tabs
     tab_names = list(parsed_content.keys()) + ["💬 AI Editing Assistant"]
     tabs = st.tabs(tab_names)
     
@@ -230,7 +258,6 @@ if "parsed_content" in st.session_state:
             content = parsed_content[name]
             st.markdown(content)
             
-            # Text-To-Speech Feature
             if enable_speech_preview and HAS_GTTS:
                 if st.button(f"🔊 Listen to Audio Preview ({name})", key=f"tts_{idx}"):
                     clean_text = re.sub(r'```.*?```', '', content, flags=re.DOTALL)
@@ -241,10 +268,9 @@ if "parsed_content" in st.session_state:
                     tts.write_to_fp(fp)
                     st.audio(fp, format="audio/mp3")
 
-    # Interactive Assistant Tab
     with tabs[-1]:
         st.subheader("💬 Ask AI to Edit or Refine Output")
-        user_query = st.text_input("Ask for adjustments (e.g., 'Make the TikTok script punchier', 'Give me 3 alternative hooks'):")
+        user_query = st.text_input("Ask for adjustments (e.g., 'Add streaming pre-save links', 'Make product features clearer'):")
         if st.button("Apply Edit Request") and user_query:
             try:
                 client = genai.Client(api_key=api_key)
