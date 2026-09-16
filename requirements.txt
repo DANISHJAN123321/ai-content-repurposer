@@ -1,7 +1,7 @@
 streamlit
 google-genai
+requests
+beautifulsoup4
 pypdf
 python-docx
-youtube-transcript-api
-gTTS
-reportlab
+gtts
