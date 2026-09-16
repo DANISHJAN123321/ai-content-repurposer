@@ -1,381 +1,268 @@
+import io
+import os
 import streamlit as st
-import re
 from google import genai
-import pypdf
-import docx
+from pypdf import PdfReader
+from docx import Document
 from youtube_transcript_api import YouTubeTranscriptApi
+from gtts import gTTS
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
-# 1. Page Configuration
+# --- Page Configuration ---
 st.set_page_config(
     page_title="AI Content Repurposer Studio",
-    page_icon="✨",
+    page_icon="🎬",
     layout="wide"
 )
 
-# 2. Custom CSS for Stylish UI
+# --- Custom CSS Styling Injection ---
 st.markdown("""
 <style>
-    /* Main title styling */
-    .main-title {
-        font-size: 2.5rem;
+    /* Main Page Styling */
+    .stApp {
+        background-color: #F8FAFC;
+    }
+    .custom-header {
+        font-size: 2.2rem;
         font-weight: 800;
-        background: -webkit-linear-gradient(45deg, #FF4B4B, #FF8C00, #4A90E2);
+        color: #1E293B;
+        background: linear-gradient(90deg, #2563EB, #7C3AED);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.2rem;
     }
-    
-    /* Subtitle styling */
-    .sub-title {
-        font-size: 1.1rem;
-        color: #6C757D;
-        margin-bottom: 2rem;
+    .custom-card {
+        background-color: #FFFFFF;
+        padding: 1.25rem;
+        border-radius: 12px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        margin-bottom: 1rem;
     }
-
-    /* Tab styling overrides */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+    /* Streamlit Button Styling */
+    div.stButton > button {
+        background-color: #2563EB;
+        color: white;
+        border-radius: 8px;
+        font-weight: 600;
+        border: none;
+        padding: 0.5rem 1rem;
+        transition: all 0.2s ease-in-out;
     }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px 8px 0px 0px;
-        padding: 10px 16px;
+    div.stButton > button:hover {
+        background-color: #1D4ED8;
+        color: white;
+        transform: translateY(-1px);
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 3. Header Section
-st.markdown('<div class="main-title">✨ AI Content Repurposer Studio</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Transform raw text, MP3 audio, PDF/DOCX files, or YouTube videos into multi-platform social media posts and image prompts.</div>', unsafe_allow_html=True)
-
-# 4. Sidebar Configuration
-st.sidebar.title("⚙️ Setup & Keys")
-
-api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else None
-
-if not api_key:
-    api_key = st.sidebar.text_input(
-        "Enter Google Gemini API Key",
-        type="password",
-        help="Get your key at aistudio.google.com"
+# --- Helper Function: PDF Generator ---
+def generate_pdf_bytes(title, content):
+    """Converts output markdown text into a formatted PDF byte buffer."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40
     )
-else:
-    st.sidebar.success("✅ Gemini API Key detected!")
-
-st.sidebar.markdown("---")
-st.sidebar.write("💡 **Tip:** Uses GEMINI-3.6-FLASH for multimodal processing and content generation.")
-
-# 5. Main Inputs Selection
-input_type = st.radio(
-    "📥 Choose Input Source Type:",
-    ["Text Script / Raw Notes", "Upload Document (PDF, DOCX, TXT)", "Upload Audio File (MP3, WAV, M4A)", "YouTube Video Link"],
-    horizontal=True
-)
-
-source_text = ""
-uploaded_doc = None
-uploaded_audio = None
-
-def extract_text_from_pdf(file):
-    reader = pypdf.PdfReader(file)
-    extracted_text = ""
-    for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            extracted_text += text + "\n"
-    return extracted_text
-
-def extract_text_from_docx(file):
-    doc = docx.Document(file)
-    return "\n".join([para.text for para in doc.paragraphs])
-
-def extract_youtube_video_id(url):
-    """Extracts YouTube 11-character video ID from various URL formats."""
-    pattern = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
-    match = re.search(pattern, url)
-    return match.group(1) if match else None
-
-def get_youtube_transcript(video_id):
-    """Fetches video transcript text using YouTubeTranscriptApi."""
-    try:
-        # Tries default/available languages (English, Urdu, Spanish, Hindi, etc.)
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'ur', 'es', 'hi', 'fr', 'de'])
-        full_transcript = " ".join([item['text'] for item in transcript_list])
-        return full_transcript, None
-    except Exception as e:
-        return None, str(e)
-
-if input_type == "Text Script / Raw Notes":
-    source_text = st.text_area(
-        "📝 Paste your source text or topic script here:",
-        height=200,
-        placeholder="Paste your blog post, script, meeting notes, or raw ideas..."
-    )
-
-elif input_type == "Upload Document (PDF, DOCX, TXT)":
-    uploaded_doc = st.file_uploader(
-        "📄 Upload a document (.pdf, .docx, .txt):",
-        type=["pdf", "docx", "txt"]
-    )
-    if uploaded_doc:
-        try:
-            if uploaded_doc.type == "application/pdf" or uploaded_doc.name.endswith(".pdf"):
-                source_text = extract_text_from_pdf(uploaded_doc)
-            elif uploaded_doc.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or uploaded_doc.name.endswith(".docx"):
-                source_text = extract_text_from_docx(uploaded_doc)
-            else:
-                source_text = uploaded_doc.read().decode("utf-8")
-            
-            st.success(f"✅ Successfully read file: {uploaded_doc.name} ({len(source_text.split())} words detected)")
-            with st.expander("🔍 Preview Extracted Text"):
-                st.text(source_text[:1000] + ("..." if len(source_text) > 1000 else ""))
-        except Exception as e:
-            st.error(f"Error processing document: {e}")
-
-elif input_type == "Upload Audio File (MP3, WAV, M4A)":
-    uploaded_audio = st.file_uploader(
-        "🎙️ Upload an audio recording (.mp3, .wav, .m4a):",
-        type=["mp3", "wav", "m4a"]
-    )
-    if uploaded_audio:
-        st.audio(uploaded_audio, format=uploaded_audio.type)
-
-else:
-    yt_url = st.text_input(
-        "🔗 Paste YouTube Video URL:",
-        placeholder="https://www.youtube.com/watch?v=..."
-    )
-    if yt_url:
-        video_id = extract_youtube_video_id(yt_url)
-        if video_id:
-            st.video(f"https://www.youtube.com/watch?v={video_id}")
-            with st.spinner("Fetching YouTube transcript..."):
-                transcript, err = get_youtube_transcript(video_id)
-                if transcript:
-                    source_text = transcript
-                    st.success(f"✅ Extracted transcript from YouTube video ({len(source_text.split())} words detected)")
-                    with st.expander("🔍 Preview YouTube Transcript"):
-                        st.text(source_text[:1000] + ("..." if len(source_text) > 1000 else ""))
-                else:
-                    st.error(f"Could not retrieve transcript for this YouTube video. Make sure Closed Captions (CC) are enabled on the video. Details: {err}")
-        else:
-            st.warning("⚠️ Invalid YouTube URL. Please enter a valid YouTube link.")
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    target_platforms = st.multiselect(
-        "🎯 Target Platforms:",
-        [
-            "YouTube Short / Video Script",
-            "Instagram Caption & Reels Idea",
-            "TikTok Script & Hook",
-            "LinkedIn Professional Post",
-            "Twitter/X Thread",
-            "Newsletter Summary Email"
-        ],
-        default=["YouTube Short / Video Script", "Instagram Caption & Reels Idea", "TikTok Script & Hook"]
-    )
-
-with col2:
-    tone = st.selectbox(
-        "🎭 Brand Tone:",
-        ["High Energy & Viral", "Professional & Insightful", "Casual & Conversational", "Storytelling & Educational"]
-    )
-
-with col3:
-    post_length = st.selectbox(
-        "📏 Output Length:",
-        [
-            "Short & Punchy (Brevity focus)",
-            "Medium / Standard (Balanced)",
-            "Detailed Longform (In-depth analysis)"
-        ],
-        index=1
-    )
-
-with col4:
-    target_language = st.selectbox(
-        "🌐 Output Language:",
-        [
-            "English",
-            "Spanish (Español)",
-            "Urdu (اردو)",
-            "French (Français)",
-            "German (Deutsch)",
-            "Arabic (العربية)",
-            "Hindi (हिंदी)"
-        ],
-        index=0
-    )
-
-c_col1, c_col2 = st.columns(2)
-with c_col1:
-    enable_image_prompts = st.checkbox("🎨 Generate AI Image Prompts (Midjourney / DALL-E 3)", value=True)
-with c_col2:
-    enable_seo = st.checkbox("🔑 Generate SEO Keywords & Hashtags Extractor", value=True)
-
-# 6. Helper Function to Parse Platform Sections
-def parse_sections(text):
-    """Splits generated text by [PLATFORM: ...] or [SECTION: ...] headers."""
-    pattern = r'\[(?:PLATFORM\vert{}SECTION):\s*(.*?)\]'
-    splits = re.split(pattern, text)
     
-    sections = {}
-    if len(splits) > 1:
-        for i in range(1, len(splits), 2):
-            header = splits[i].strip()
-            content = splits[i+1].strip() if (i+1) < len(splits) else ""
-            sections[header] = content
-    else:
-        sections["Generated Output"] = text
-        
-    return sections
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'DocTitle', parent=styles['Heading1'],
+        fontSize=20, leading=24, textColor=colors.HexColor('#1E3A8A'), spaceAfter=15
+    )
+    heading_style = ParagraphStyle(
+        'SectionHeading', parent=styles['Heading2'],
+        fontSize=13, leading=16, textColor=colors.HexColor('#2563EB'), spaceBefore=12, spaceAfter=6
+    )
+    body_style = ParagraphStyle(
+        'BodyTextCustom', parent=styles['BodyText'],
+        fontSize=10, leading=14, textColor=colors.HexColor('#1F2937'), spaceAfter=8
+    )
 
-# 7. Content Generation Logic
-if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
-    if not api_key:
-        st.error("⚠️ Please enter your Gemini API key in the sidebar or save it in secrets.")
-    elif input_type in ["Text Script / Raw Notes", "Upload Document (PDF, DOCX, TXT)", "YouTube Video Link"] and not source_text.strip():
-        st.warning("⚠️ Please provide source text, a valid document, or a YouTube video with available transcripts.")
-    elif input_type == "Upload Audio File (MP3, WAV, M4A)" and uploaded_audio is None:
-        st.warning("⚠️ Please upload an audio file first.")
-    elif not target_platforms:
-        st.warning("⚠️ Please select at least one platform.")
-    else:
+    story = [Paragraph(title, title_style), Spacer(1, 10)]
+    
+    for line in content.split('\n'):
+        line_clean = line.strip()
+        if not line_clean:
+            story.append(Spacer(1, 4))
+            continue
+        safe_line = line_clean.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        if safe_line.startswith('#') or safe_line.startswith('[PLATFORM:'):
+            header_text = safe_line.lstrip('#').replace('[', '').replace(']', '').strip()
+            story.append(Paragraph(header_text, heading_style))
+        else:
+            story.append(Paragraph(safe_line, body_style))
+            
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+# --- Helper Function: Extract YouTube Video ID ---
+def get_youtube_id(url):
+    if "v=" in url:
+        return url.split("v=")[1].split("&")[0]
+    elif "youtu.be/" in url:
+        return url.split("youtu.be/")[1].split("?")[0]
+    return url
+
+# --- Header Section ---
+st.markdown('<div class="custom-header">🎬 AI Content Repurposer Studio</div>', unsafe_allow_html=True)
+st.markdown("<p style='color: #64748B;'>Transform long-form text, documents, or YouTube transcripts into multi-platform social media scripts instantly.</p>", unsafe_allow_html=True)
+
+# --- Sidebar Controls ---
+with st.sidebar:
+    st.header("⚙️ Configuration")
+    api_key = st.text_input("Gemini API Key", type="password", help="Enter your Google AI Studio API key")
+    
+    target_language = st.selectbox(
+        "🌐 Output Language",
+        ["English", "Urdu (اردو)", "Spanish (Español)", "French (Français)", "German (Deutsch)", "Hindi (हिंदी)"]
+    )
+    
+    selected_platforms = st.multiselect(
+        "📱 Select Output Platforms",
+        ["YouTube Shorts", "TikTok Script", "Instagram Reel", "Twitter/X Thread", "LinkedIn Article"],
+        default=["YouTube Shorts", "TikTok Script", "Twitter/X Thread"]
+    )
+
+# --- Main Input Options ---
+st.markdown('<div class="custom-card">', unsafe_allow_html=True)
+input_type = st.radio("Select Source Material Type:", ["Text Input", "File Upload (.pdf, .docx, .txt)", "YouTube URL"], horizontal=True)
+
+raw_text = ""
+
+if input_type == "Text Input":
+    raw_text = st.text_area("Paste your article, video transcript, or document content here:", height=200)
+
+elif input_type == "File Upload (.pdf, .docx, .txt)":
+    uploaded_file = st.file_uploader("Upload document", type=["pdf", "docx", "txt"])
+    if uploaded_file is not None:
+        if uploaded_file.name.endswith(".txt"):
+            raw_text = uploaded_file.read().decode("utf-8")
+        elif uploaded_file.name.endswith(".pdf"):
+            pdf_reader = PdfReader(uploaded_file)
+            raw_text = "\n".join([page.extract_text() for page in pdf_reader.pages if page.extract_text()])
+        elif uploaded_file.name.endswith(".docx"):
+            doc = Document(uploaded_file)
+            raw_text = "\n".join([p.text for p in doc.paragraphs])
+        st.success(f"✅ Loaded file: {uploaded_file.name} ({len(raw_text)} characters extracted)")
+
+elif input_type == "YouTube URL":
+    yt_url = st.text_input("Paste YouTube Video Link:")
+    if yt_url:
         try:
-            client = genai.Client(api_key=api_key)
-            
-            platforms_str = ", ".join(target_platforms)
-            
-            transcript_instruction = ""
-            if input_type == "Upload Audio File (MP3, WAV, M4A)":
-                transcript_instruction = """
-                SPECIAL INSTRUCTION FOR AUDIO INPUT:
-                You MUST include a dedicated section at the very top formatted strictly as:
-                [SECTION: 🎙️ Raw Audio Transcript]
-                Provide an accurate, full verbatim transcript of everything spoken in the audio file.
-                """
-
-            image_prompt_instruction = ""
-            if enable_image_prompts:
-                image_prompt_instruction = """
-                Include a dedicated section formatted strictly as:
-                [SECTION: 🎨 AI Image Prompts (Midjourney / DALL-E 3)]
-                
-                Provide 4 high-quality prompts matching the content theme. 
-                STRICT RULE: Wrap every single prompt text inside markdown code blocks (using triple backticks ```) so users can click the top-right Copy button!
-
-                Structure the output like this:
-
-                ### 1. YouTube Thumbnail / Wide Cover (16:9)
-                ```
-                cinematic shot, vivid composition, dramatic studio lighting --ar 16:9 --v 6.0
-                ```
-
-                ### 2. Instagram Grid / Square Post (1:1)
-                ```
-                minimalist aesthetic concept, clean design, vibrant color palette --ar 1:1 --v 6.0
-                ```
-
-                ### 3. TikTok / Reels Portrait Cover (9:16)
-                ```
-                dynamic vertical composition, bold lighting, eye-catching visual subject --ar 9:16 --v 6.0
-                ```
-
-                ### 4. DALL-E 3 Detailed Natural Prompt
-                ```
-                A detailed photographic portrait depicting [subject], illuminated by soft golden hour light, shot on 85mm lens with shallow depth of field, high resolution, hyper-realistic texture.
-                ```
-                """
-
-            seo_instruction = ""
-            if enable_seo:
-                seo_instruction = f"""
-                Also include a dedicated section at the end formatted strictly as:
-                [SECTION: SEO Keywords & Hashtags]
-                Provide all keywords and hashtags in {target_language}:
-                1. Top 10 High-Volume SEO Keywords
-                2. Search Intent / Long-Tail Keywords
-                3. Trending Hashtags organized by platform
-                """
-
-            prompt = f"""
-            Act as a world-class social media strategist, visual director, and content creator.
-            
-            {transcript_instruction}
-
-            Repurpose the core ideas from the provided input into content customized specifically for these platforms: {platforms_str}.
-            
-            IMPORTANT: Write ALL social media response content, hooks, captions, scripts, and hashtags entirely in **{target_language}**.
-            (Note: Image prompts inside code blocks MUST remain in English for optimal performance in Midjourney/DALL-E 3).
-            
-            Tone of Voice: {tone}
-            Output Length Preference: {post_length}
-            
-            Length Guidelines:
-            - If 'Short & Punchy': Keep posts tight, bullet-point focused, quick hooks, minimal fluff.
-            - If 'Medium / Standard': Standard post lengths typical for each social network.
-            - If 'Detailed Longform': Expand deeply on points, provide rich context, extended storytelling, and comprehensive explanations.
-
-            STRICT FORMATTING RULE:
-            You MUST label every single platform's content with this exact header format in English before the content starts (so tabs render properly):
-            [PLATFORM: Platform Name]
-
-            Instructions per platform (translate all output to {target_language}):
-            - YouTube Short / Video Script: Include visual hook, video script (tailored to {post_length}), and title ideas.
-            - Instagram Caption & Reels Idea: Include caption, visual scene description, and hashtags.
-            - TikTok Script & Hook: Focus on fast-paced hook (0-3s), main script, and text overlays.
-            - LinkedIn Professional Post: Professional formatting with line breaks and actionable takeaways.
-            - Twitter/X Thread: Concise or extended thread format depending on length selected.
-            - Newsletter Summary Email: Catchy subject line and newsletter copy.
-
-            {image_prompt_instruction}
-
-            {seo_instruction}
-            """
-
-            contents_payload = []
-
-            if input_type == "Upload Audio File (MP3, WAV, M4A)":
-                audio_bytes = uploaded_audio.read()
-                mime_type = uploaded_audio.type or "audio/mp3"
-                contents_payload.append({
-                    "mime_type": mime_type,
-                    "data": audio_bytes
-                })
-                contents_payload.append(prompt)
-            else:
-                contents_payload.append(f"Source Material:\n{source_text}\n\n{prompt}")
-
-            with st.spinner(f"✨ Generating {post_length} content in {target_language}..."):
-                response = client.models.generate_content(
-                    model="gemini-3.6-flash",
-                    contents=contents_payload
-                )
-            
-            st.success(f"✅ Content Generated Successfully in {target_language}!")
-            st.markdown("---")
-            
-            output_text = response.text
-            parsed_content = parse_sections(output_text)
-            
-            tab_names = list(parsed_content.keys())
-            
-            if tab_names:
-                tabs = st.tabs(tab_names)
-                for tab, name in zip(tabs, tab_names):
-                    with tab:
-                        st.markdown(parsed_content[name])
-            else:
-                st.markdown(output_text)
-            
-            st.markdown("---")
-            st.download_button(
-                label=f"📥 Download All Output ({target_language}) (.txt)",
-                data=output_text,
-                file_name=f"repurposed_content_{target_language.lower().split()[0]}.txt",
-                mime="text/plain"
-            )
-
+            video_id = get_youtube_id(yt_url)
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            raw_text = " ".join([t['text'] for t in transcript_list])
+            st.success(f"✅ Extracted transcript from YouTube video ID: {video_id}")
         except Exception as e:
-            st.error(f"An error occurred: {e}")
+            st.error(f"Could not retrieve YouTube transcript: {e}")
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# --- Processing & Generation ---
+if st.button("🚀 Generate Social Scripts", use_container_width=True):
+    if not api_key:
+        st.error("Please provide a valid Gemini API Key in the sidebar.")
+    elif not raw_text.strip():
+        st.warning("Please provide source material before generating.")
+    else:
+        with st.spinner("Analyzing content and generating social media scripts..."):
+            try:
+                client = genai.Client(api_key=api_key)
+                
+                prompt = f"""
+                You are an expert social media content creator and copywriter.
+                Repurpose the following content into structured scripts/posts for these platforms: {', '.join(selected_platforms)}.
+                
+                Target Language: {target_language}
+                
+                SOURCE CONTENT:
+                {raw_text[:8000]}
+                
+                For each requested platform, provide:
+                1. A strong hook to capture attention.
+                2. Main content/script formatted with timestamps, visual prompts, or slide markers where applicable.
+                3. Clear Call to Action (CTA) and relevant hashtags.
+                
+                Format the final response cleanly using distinct headers: [PLATFORM: <Name>]
+                """
+
+                response = client.models.generate_content(
+                    model="gemini-1.5-flash",
+                    contents=prompt,
+                )
+
+                output_text = response.text
+                st.session_state['output_text'] = output_text
+
+            except Exception as gen_err:
+                st.error(f"Generation failed: {gen_err}")
+
+# --- Output & Export Display Section ---
+if 'output_text' in st.session_state:
+    output_text = st.session_state['output_text']
+    
+    st.markdown("### 📝 Generated Scripts")
+    st.markdown(output_text)
+
+    # --- Text-To-Speech Audio Preview ---
+    st.markdown("---")
+    st.markdown("### 🎧 Listen to Script Preview")
+    
+    lang_codes = {
+        "English": "en",
+        "Spanish (Español)": "es",
+        "Urdu (اردو)": "ur",
+        "French (Français)": "fr",
+        "German (Deutsch)": "de",
+        "Hindi (हिंदी)": "hi"
+    }
+    tts_lang = lang_codes.get(target_language, "en")
+    preview_text = output_text[:1000]
+
+    if st.button("🔊 Generate Audio Narration Preview"):
+        with st.spinner("Synthesizing audio preview..."):
+            try:
+                tts = gTTS(text=preview_text, lang=tts_lang, slow=False)
+                audio_fp = io.BytesIO()
+                tts.write_to_fp(audio_fp)
+                audio_fp.seek(0)
+                st.audio(audio_fp, format="audio/mp3")
+                st.success("✅ Audio ready! Click play above.")
+            except Exception as tts_err:
+                st.error(f"Audio generation failed: {tts_err}")
+
+    # --- Export Download Options ---
+    st.markdown("---")
+    d_col1, d_col2 = st.columns(2)
+
+    with d_col1:
+        st.download_button(
+            label=f"📥 Download Raw TXT ({target_language})",
+            data=output_text,
+            file_name=f"repurposed_content_{target_language.lower().split()[0]}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+
+    with d_col2:
+        pdf_data = generate_pdf_bytes(
+            title=f"AI Content Repurposer Studio - {target_language}",
+            content=output_text
+        )
+        st.download_button(
+            label=f"📄 Download PDF Document ({target_language})",
+            data=pdf_data,
+            file_name=f"repurposed_content_{target_language.lower().split()[0]}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
