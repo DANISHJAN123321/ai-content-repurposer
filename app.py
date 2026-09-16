@@ -5,11 +5,12 @@ from bs4 import BeautifulSoup
 from google import genai
 import pypdf
 import docx
+import pandas as pd
+import io
 
 # Optional audio preview dependency
 try:
     from gtts import gTTS
-    import io
     HAS_GTTS = True
 except ImportError:
     HAS_GTTS = False
@@ -47,12 +48,51 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 3. Header Section
-st.markdown('<div class="main-title">✨ AI Content Repurposer Studio Pro</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> with URL Scraper & AI Content Calendar.</div>', unsafe_allow_html=True)
+# ==========================================
+# 3. AUTHENTICATION & GUEST GATE
+# ==========================================
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+if "is_guest" not in st.session_state:
+    st.session_state["is_guest"] = False
 
-# 4. Sidebar Setup
-st.sidebar.title("⚙️ Setup & Keys")
+if not st.session_state["authenticated"]:
+    st.markdown('<div class="main-title">🔒 Access Portal</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title">Enter your password or continue as a guest (history will not be saved).</div>', unsafe_allow_html=True)
+    
+    stored_password = st.secrets.get("APP_PASSWORD", "secret123")
+    entered_password = st.text_input("Enter Password:", type="password")
+    
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🔓 Unlock with Password", type="primary"):
+            if entered_password == stored_password:
+                st.session_state["authenticated"] = True
+                st.session_state["is_guest"] = False
+                st.rerun()
+            else:
+                st.error("❌ Incorrect password.")
+    with col_btn2:
+        if st.button("👤 Continue as Guest"):
+            st.session_state["authenticated"] = True
+            st.session_state["is_guest"] = True
+            st.rerun()
+            
+    st.stop()
+
+# ==========================================
+# 4. MAIN APP CONTENT (Unlocked)
+# ==========================================
+
+if st.session_state["is_guest"]:
+    st.info("👋 **Guest Mode Active:** Full tool access enabled. History is temporary.")
+
+# Header Section
+st.markdown('<div class="main-title">✨ AI Content Repurposer Studio Pro</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> with Character Checkers & CSV Schedulers.</div>', unsafe_allow_html=True)
+
+# Sidebar Setup
+st.sidebar.title("⚙️ Setup & Customization")
 api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else None
 
 if not api_key:
@@ -61,9 +101,28 @@ else:
     st.sidebar.success("✅ Gemini API Key Active")
 
 st.sidebar.markdown("---")
+st.sidebar.subheader("📌 Brand Persona Preset")
+selected_persona = st.sidebar.selectbox(
+    "Choose Persona Style:",
+    [
+        "🎵 Independent Music Artist / Hype",
+        "👕 E-Commerce Storefront / Organic Apparel",
+        "💻 Tech & Software Creator",
+        "🎯 General Content Strategist"
+    ]
+)
+
+custom_cta = st.sidebar.text_input("Default CTA / Link to Inject:", placeholder="e.g., Check our store at danish-jan.teemill.com")
+
+st.sidebar.markdown("---")
+if st.sidebar.button("🔒 Logout / Lock App"):
+    st.session_state["authenticated"] = False
+    st.session_state["is_guest"] = False
+    st.rerun()
+
 st.sidebar.write("⚡ **Engine:** `gemini-3.6-flash`")
 
-# 5. Helper Functions
+# Helper Functions
 def extract_text_from_url(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
     response = requests.get(url, headers=headers, timeout=10)
@@ -83,7 +142,7 @@ def extract_text_from_docx(file):
     return "\n".join([para.text for para in doc.paragraphs])
 
 def parse_sections(text):
-    pattern = r'\[(?:PLATFORM\vert{}SECTION):\s*(.*?)\]'
+    pattern = r'\[(?:PLATFORM|SECTION):\s*(.*?)\]'
     splits = re.split(pattern, text)
     sections = {}
     if len(splits) > 1:
@@ -95,7 +154,7 @@ def parse_sections(text):
         sections["Generated Output"] = text
     return sections
 
-# 6. Inputs Section
+# Inputs Section
 input_type = st.radio(
     "📥 Choose Input Source Type:",
     ["Text Script / Raw Notes", "🌐 Web Page / Article URL", "Upload Document (PDF, DOCX, TXT)", "Upload Audio File (MP3, WAV, M4A)"],
@@ -140,17 +199,6 @@ else:
     if uploaded_audio:
         st.audio(uploaded_audio, format=uploaded_audio.type)
 
-# Framework Selector
-campaign_framework = st.selectbox(
-    "💡 Select Specialized Marketing Template:",
-    [
-        "General Content Marketing",
-        "🎵 Music Release & Audio Promotion Strategy",
-        "👕 Apparel & E-Commerce Storefront Campaign"
-    ],
-    index=0
-)
-
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     target_platforms = st.multiselect(
@@ -170,15 +218,15 @@ with col4:
 
 c_col1, c_col2, c_col3, c_col4 = st.columns(4)
 with c_col1:
-    enable_image_prompts = st.checkbox("🎨 Generate AI Image Prompts", value=True)
+    enable_sentiment = st.checkbox("📊 Sentiment Analysis", value=True)
 with c_col2:
-    enable_seo = st.checkbox("🔑 Extract SEO & Hashtags", value=True)
+    enable_image_prompts = st.checkbox("🎨 AI Image Prompts", value=True)
 with c_col3:
-    enable_calendar = st.checkbox("📅 Generate 7-Day Posting Plan", value=True)
+    enable_calendar = st.checkbox("📅 7-Day Posting Plan", value=True)
 with c_col4:
-    enable_speech_preview = st.checkbox("🔊 Audio Speech Preview", value=HAS_GTTS, disabled=not HAS_GTTS)
+    enable_speech_preview = st.checkbox("🔊 Audio Preview", value=HAS_GTTS, disabled=not HAS_GTTS)
 
-# 7. Generation Trigger
+# Generation Trigger
 if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
     if not api_key:
         st.error("⚠️ Gemini API key required.")
@@ -195,50 +243,27 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
             
             transcript_instruction = "[SECTION: 🎙️ Raw Audio Transcript]\nProvide a full verbatim transcript of the audio file." if input_type == "Upload Audio File (MP3, WAV, M4A)" else ""
             
-            framework_instruction = ""
-            if campaign_framework == "🎵 Music Release & Audio Promotion Strategy":
-                framework_instruction = """
-                SPECIALIZED MARKETING FRAMEWORK: MUSIC RELEASE & AUDIO CONTENT
-                - Focus on building hype: Pre-save hooks, teaser audio overlays, streaming links (Spotify, SoundCloud, Apple Music).
-                - Structure TikTok & Reels with visual scene ideas (studio clips, visualizer concepts, lyric sync cues).
-                """
-            elif campaign_framework == "👕 Apparel & E-Commerce Storefront Campaign":
-                framework_instruction = """
-                SPECIALIZED MARKETING FRAMEWORK: APPAREL & STOREFRONT CAMPAIGN
-                - Focus on product highlights: Organic materials, fit previews, print design stories, limited drops, shop CTAs.
-                - Structure content around aesthetic lifestyle hooks and behind-the-scenes brand messaging.
-                """
-
-            calendar_instruction = """
-            [SECTION: 📅 7-Day Content Scheduling Plan]
-            Provide a day-by-day table (Day 1 through Day 7) showing: Day, Recommended Platform, Post Title/Hook, and Best Time to Post.
-            """ if enable_calendar else ""
-
-            image_prompt_instruction = """
-            [SECTION: 🎨 AI Image Prompts (Midjourney / DALL-E 3)]
-            Provide 4 prompts wrapped inside markdown code blocks (```):
-            1. YouTube Thumbnail / Banner Cover (16:9)
-            2. Instagram Grid / Product Display (1:1)
-            3. TikTok / Reels Portrait Visual (9:16)
-            4. Detailed DALL-E 3 Aesthetic Prompt
-            """ if enable_image_prompts else ""
-
-            seo_instruction = f"[SECTION: SEO Keywords & Hashtags]\nProvide top 10 high-volume keywords, search intent tags, and platform hashtags in {target_language}." if enable_seo else ""
+            persona_instructions = f"Apply Brand Persona Style: {selected_persona}."
+            sentiment_instruction = "[SECTION: 📊 Content Sentiment & Audience Fit]\nAnalyze emotional tone and target persona." if enable_sentiment else ""
+            calendar_instruction = "[SECTION: 📅 7-Day Content Scheduling Plan]\nProvide a day-by-day scheduling table." if enable_calendar else ""
+            image_prompt_instruction = "[SECTION: 🎨 AI Image Prompts (Midjourney / DALL-E 3)]\nProvide 4 visual prompts wrapped inside code blocks." if enable_image_prompts else ""
+            cta_injection = f"\nNaturally incorporate this CTA: '{custom_cta}'" if custom_cta else ""
 
             prompt = f"""
-            Act as a master social media strategist and creative director. 
+            Act as a master social media strategist. 
+            {persona_instructions}
             {transcript_instruction}
-            {framework_instruction}
 
             Repurpose the input content for these target platforms: {platforms_str}.
             Language: Write all posts/scripts in **{target_language}** (Keep image prompts in English).
             Tone: {tone} | Depth: {post_length}
+            {cta_injection}
 
             STRICT FORMAT: Label every section with `[PLATFORM: Platform Name]` or `[SECTION: Section Name]`.
 
+            {sentiment_instruction}
             {calendar_instruction}
             {image_prompt_instruction}
-            {seo_instruction}
             """
 
             payload = []
@@ -261,13 +286,12 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
         except Exception as e:
             st.error(f"Error during generation: {e}")
 
-# 8. Render Results Dashboard & Interactive Assistant
+# Render Results Dashboard & Interactive Assistant
 if "parsed_content" in st.session_state:
     parsed_content = st.session_state["parsed_content"]
     raw_output = st.session_state.get("generated_output", "")
     
     st.markdown("---")
-    
     st.subheader("📊 Strategy Insights Dashboard")
     d_col1, d_col2, d_col3 = st.columns(3)
     word_count = len(raw_output.split())
@@ -288,23 +312,34 @@ if "parsed_content" in st.session_state:
             content = parsed_content[name]
             st.markdown(content)
             
+            # Character & Word count badges
+            c_chars = len(content)
+            c_words = len(content.split())
+            st.caption(f"📏 Stats: **{c_chars}** characters | **{c_words}** words")
+            
+            col_btn1, col_btn2 = st.columns([1, 4])
+            with col_btn1:
+                if st.button(f"📋 Copy Text", key=f"copy_{idx}"):
+                    st.toast(f"Copied {name} content to clipboard!")
+            
             if enable_speech_preview and HAS_GTTS:
-                if st.button(f"🔊 Listen to Audio Preview ({name})", key=f"tts_{idx}"):
-                    clean_text = re.sub(r'```.*?```', '', content, flags=re.DOTALL)
-                    clean_text = re.sub(r'[\*#_]', '', clean_text)
-                    lang_code = "en" if "English" in target_language else "es" if "Spanish" in target_language else "ur" if "Urdu" in target_language else "en"
-                    tts = gTTS(text=clean_text[:500], lang=lang_code)
-                    fp = io.BytesIO()
-                    tts.write_to_fp(fp)
-                    st.audio(fp, format="audio/mp3")
+                with col_btn2:
+                    if st.button(f"🔊 Listen to Audio Preview", key=f"tts_{idx}"):
+                        clean_text = re.sub(r'```.*?```', '', content, flags=re.DOTALL)
+                        clean_text = re.sub(r'[\*#_]', '', clean_text)
+                        lang_code = "en" if "English" in target_language else "es" if "Spanish" in target_language else "ur" if "Urdu" in target_language else "en"
+                        tts = gTTS(text=clean_text[:500], lang=lang_code)
+                        fp = io.BytesIO()
+                        tts.write_to_fp(fp)
+                        st.audio(fp, format="audio/mp3")
 
     with tabs[-1]:
         st.subheader("💬 Ask AI to Edit or Refine Output")
-        user_query = st.text_input("Ask for adjustments (e.g., 'Make the hook punchier', 'Add a promotional discount code'):")
+        user_query = st.text_input("Ask for adjustments (e.g., 'Make the hook punchier', 'Add a discount code'):")
         if st.button("Apply Edit Request") and user_query:
             try:
                 client = genai.Client(api_key=api_key)
-                edit_prompt = f"Original Generated Content:\n{raw_output}\n\nUser Revision Request: {user_query}\n\nProvide the updated content or specific adjustment requested in {target_language}:"
+                edit_prompt = f"Original Generated Content:\n{raw_output}\n\nUser Revision Request: {user_query}\n\nProvide updated content in {target_language}:"
                 with st.spinner("Applying revisions..."):
                     revised_resp = client.models.generate_content(
                         model="gemini-3.6-flash",
@@ -315,22 +350,31 @@ if "parsed_content" in st.session_state:
             except Exception as e:
                 st.error(f"Error executing revision: {e}")
 
-    # 9. Download Options
     st.markdown("---")
     st.subheader("📥 Export Campaign")
-    ex_col1, ex_col2 = st.columns(2)
+    ex_col1, ex_col2, ex_col3 = st.columns(3)
     
     with ex_col1:
         st.download_button(
-            label="📄 Download as Markdown (.md)",
+            label="📄 Download Markdown (.md)",
             data=raw_output,
             file_name=f"campaign_{target_language.lower()}.md",
             mime="text/markdown"
         )
     with ex_col2:
         st.download_button(
-            label="📝 Download as Plain Text (.txt)",
+            label="📝 Download Plain Text (.txt)",
             data=raw_output,
             file_name=f"campaign_{target_language.lower()}.txt",
             mime="text/plain"
+        )
+    with ex_col3:
+        # Build DataFrame for CSV Scheduler export
+        df_export = pd.DataFrame(list(parsed_content.items()), columns=["Platform / Section", "Content"])
+        csv_data = df_export.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📊 Download CSV (Scheduler)",
+            data=csv_data,
+            file_name="social_media_scheduler.csv",
+            mime="text/csv"
         )
