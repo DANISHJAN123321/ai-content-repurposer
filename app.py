@@ -42,18 +42,12 @@ st.markdown("""
         border-radius: 8px 8px 0px 0px;
         padding: 10px 16px;
     }
-    .metric-card {
-        background-color: #f8f9fa;
-        padding: 12px;
-        border-radius: 8px;
-        border-left: 4px solid #4A90E2;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 # 3. Header Section
 st.markdown('<div class="main-title">✨ AI Content Repurposer Studio Pro</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Transform raw text, documents, or audio into multi-platform campaigns, image prompts, and audio previews.</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Powered by <b>gemini-3.6-flash</b> engine.</div>', unsafe_allow_html=True)
 
 # 4. Sidebar Setup
 st.sidebar.title("⚙️ Setup & Keys")
@@ -65,7 +59,7 @@ else:
     st.sidebar.success("✅ Gemini API Key Active")
 
 st.sidebar.markdown("---")
-st.sidebar.write("⚡ **Engine:** `gemini-2.5-flash`")
+st.sidebar.write("⚡ **Engine:** `gemini-3.6-flash`")
 
 # 5. Helper Functions
 def extract_text_from_pdf(file):
@@ -77,7 +71,7 @@ def extract_text_from_docx(file):
     return "\n".join([para.text for para in doc.paragraphs])
 
 def parse_sections(text):
-    pattern = r'\[(?:PLATFORM|SECTION):\s*(.*?)\]'
+    pattern = r'\[(?:PLATFORM\vert{}SECTION):\s*(.*?)\]'
     splits = re.split(pattern, text)
     sections = {}
     if len(splits) > 1:
@@ -193,12 +187,16 @@ if st.button("🚀 Repurpose Content Across Platforms", type="primary"):
             else:
                 payload.append(f"Source Material:\n{source_text}\n\n{prompt}")
 
-            with st.spinner(f"✨ Generating campaign in {target_language}..."):
-                response = client.models.generate_content(model="gemini-2.5-flash", contents=payload)
+            with st.spinner(f"✨ Generating campaign in {target_language} using gemini-3.6-flash..."):
+                # Clean call without prohibited hyperparameter overrides
+                response = client.models.generate_content(
+                    model="gemini-3.6-flash",
+                    contents=payload
+                )
 
             st.session_state["generated_output"] = response.text
             st.session_state["parsed_content"] = parse_sections(response.text)
-            st.success("✅ Content Generated Successfully!")
+            st.success("✅ Content Generated Successfully with gemini-3.6-flash!")
 
         except Exception as e:
             st.error(f"Error during generation: {e}")
@@ -230,3 +228,53 @@ if "parsed_content" in st.session_state:
     for idx, name in enumerate(parsed_content.keys()):
         with tabs[idx]:
             content = parsed_content[name]
+            st.markdown(content)
+            
+            # Text-To-Speech Feature
+            if enable_speech_preview and HAS_GTTS:
+                if st.button(f"🔊 Listen to Audio Preview ({name})", key=f"tts_{idx}"):
+                    clean_text = re.sub(r'```.*?```', '', content, flags=re.DOTALL)
+                    clean_text = re.sub(r'[\*#_]', '', clean_text)
+                    lang_code = "en" if "English" in target_language else "es" if "Spanish" in target_language else "ur" if "Urdu" in target_language else "en"
+                    tts = gTTS(text=clean_text[:500], lang=lang_code)
+                    fp = io.BytesIO()
+                    tts.write_to_fp(fp)
+                    st.audio(fp, format="audio/mp3")
+
+    # Interactive Assistant Tab
+    with tabs[-1]:
+        st.subheader("💬 Ask AI to Edit or Refine Output")
+        user_query = st.text_input("Ask for adjustments (e.g., 'Make the TikTok script punchier', 'Give me 3 alternative hooks'):")
+        if st.button("Apply Edit Request") and user_query:
+            try:
+                client = genai.Client(api_key=api_key)
+                edit_prompt = f"Original Generated Content:\n{raw_output}\n\nUser Revision Request: {user_query}\n\nProvide the updated content or specific adjustment requested in {target_language}:"
+                with st.spinner("Applying revisions..."):
+                    revised_resp = client.models.generate_content(
+                        model="gemini-3.6-flash",
+                        contents=edit_prompt
+                    )
+                st.markdown("### ✏️ Revised Output / Answer:")
+                st.markdown(revised_resp.text)
+            except Exception as e:
+                st.error(f"Error executing revision: {e}")
+
+    # 9. Download Options
+    st.markdown("---")
+    st.subheader("📥 Export Campaign")
+    ex_col1, ex_col2 = st.columns(2)
+    
+    with ex_col1:
+        st.download_button(
+            label="📄 Download as Markdown (.md)",
+            data=raw_output,
+            file_name=f"campaign_{target_language.lower()}.md",
+            mime="text/markdown"
+        )
+    with ex_col2:
+        st.download_button(
+            label="📝 Download as Plain Text (.txt)",
+            data=raw_output,
+            file_name=f"campaign_{target_language.lower()}.txt",
+            mime="text/plain"
+        )
